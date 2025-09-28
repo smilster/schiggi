@@ -1,0 +1,37 @@
+name: ffmpeg create schiggi.mp4  
+
+on:
+  push:
+    paths:
+      - ".github/workflows/data/*.jpg"
+
+jobs:
+  build-video:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ffmpeg command in container
+        run: |
+          docker run --rm \
+          -v "${{ github.workspace }}:/data" \
+          lscr.io/linuxserver/ffmpeg:latest \
+          -framerate 20 \
+          -pattern_type glob \
+          -i "/data/.github/workflows/data/*.jpg" \
+          -vf "crop=440:264:230:100,scale=220:-1" \
+          -c:v libx264 \
+          -preset medium \
+          -pix_fmt yuv420p \
+          -crf 24 \
+          -an \
+          -y "/data/schiggi.mp4"
+
+      - name: Commit schiggi.mp4 to repo
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: 'schiggi.mp4'
+          message: 'workflow update of schiggi.mp4'
+          default_author: github_actions
