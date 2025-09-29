@@ -21,7 +21,7 @@ jobs:
           -framerate 20 \
           -pattern_type glob \
           -i "/data/.github/workflows/data/*.jpg" \
-          -vf "crop=440:264:230:100,scale=220:-1" \
+          -vf "crop=440:264:230:100" \
           -c:v libx264 \
           -preset medium \
           -pix_fmt yuv420p \
