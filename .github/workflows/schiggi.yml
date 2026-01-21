@@ -1,0 +1,140 @@
+name: process images and deploy
+
+# defining the trigger for the runner:
+# run if there are new *.jpg files in this repo's images folder
+# i.e., I push new images to the images folder
+on:
+  push:
+    paths:
+      - "images/*.jpg"
+
+# Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+# define runner job: start ubuntu-latest instance
+# see https://github.com/actions/runner-images for available images
+# see also https://github.com/actions/checkout/tree/v4
+# the ubuntu runner mounts repo's root directory $GITHUB_WORKSPACE
+# and can be accessed with ${{ github.workspace }} inside runner
+
+jobs:
+  process-images-and-deploy:
+  
+# environment is only needed for last deploy steps
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+
+# define process for ubuntu:
+# start ffmpeg in docker container pulled from
+# linuxserver.io, see https://docs.linuxserver.io/images/docker-ffmpeg/
+# the repo's root directory ${{ github.workspace }} is mounted to
+# /repoRoot inside docker container with
+# -v ${{ github.workspace }}:/repoRoot
+# hence ffmpeg can access the JPEGs stored in images folder
+# and aus as input (-i flag)
+# -i /repoRoot/images/*jpg
+# Note that the docker container directly runs ffmpeg and
+# expects ffmpeg-arguments/flags after "lscr.io/linuxserver/ffmpeg:latest"
+# output: /repoRoot/schiggi.mp4, specified by last ffmpeg argument,
+# stores schiggi.mp4 in repo's root directory
+# docker: --rm cleans docker directory when finished
+# ffmpeg: see ffmpeg documentation to understand flags
+
+
+      - name: Build schiggi.mp4
+        run: |
+          docker run --rm \
+          -v "${{ github.workspace }}:/repoRoot" \
+          lscr.io/linuxserver/ffmpeg:latest \
+          -framerate 20 \
+          -pattern_type glob \
+          -i "/repoRoot/images/*.jpg" \
+          -vf "crop=440:264:230:100" \
+          -c:v libx264 \
+          -preset medium \
+          -pix_fmt yuv420p \
+          -crf 24 \
+          -an \
+          -y \
+          "/repoRoot/schiggi.mp4"
+ 
+
+
+# the following runs a multiline bash script
+# that automatically generates images.md showing 
+# all pictures in one file
+      - name: Build images.md
+        run: |
+          baseUrl="https://smilster.github.io/schiggi"
+
+          imagesMD="<h1 align=\"center\">
+          Latest Schiggi Images
+          </h1>
+          <br><br>
+          <p align=\"center\">"
+
+          cd ${{ github.workspace }}
+
+          for f in images/*.jpg;
+          do
+          image="<img width=\"50%\" src=\"$baseUrl/$f\"> </img><br>"
+          imagesMD="$imagesMD
+          $image"
+          done
+
+          imagesMD="
+          $imagesMD
+          </p>
+          "
+          echo "$imagesMD" > images.md
+          
+      - name: update README.md
+        run: |
+          cd ${{ github.workspace }}
+          newString="<sub>created on $(date --utc)<\/sub>"
+          sed -i "s/<sub>created.*/$newString/g" README.md        
+
+# define the commit action, see https://github.com/marketplace/actions/add-commit
+      - name: Commit schiggi.mp4, images.md and README.md
+        uses: EndBug/add-and-commit@v9
+# add-and-commit inputs
+        with:
+          add: 'schiggi.mp4 images.md README.md' # add schiggi.mp4 and images.md to repo's root dir
+          message: 'schiggi update'
+          commit: --amend # overwrites last commit for cleaner commit history, because I don't want to keep track of all updates
+          push: --force-with-lease # needed to overwrite if --ammend is use
+          default_author: github_actions # I don't want that the automation process is counted as contribution
+
+# deploy GitHubPages, the following lines are default when you create a deploy runner, but omit checkout again
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Upload entire repository
+          path: '.'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
